@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- GitHub Pages ではレスポンスヘッダを設定できないため、meta で CSP を宣言する -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="アカウント名・褒めたいもの・レビューを入れると、感情を絵文字と“ふざけた桁”に変換した褒め褒めクチコミ風プレビューを作るジョークツール。">
+  <title>ほめほめプレビューメイカー</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%AD%90%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <h1>ほめほめプレビューメイカー <span aria-hidden="true">⭐</span></h1>
+    <p class="lead">褒めたいものを、全力で褒めちぎるクチコミ風プレビューをつくろう。入力内容は端末の外に送信されません。</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel form-panel" aria-labelledby="form-title">
+      <h2 id="form-title">入力</h2>
+      <form id="form" autocomplete="off" novalidate>
+        <label for="account">アカウント名 <small class="counter" data-for="account"></small></label>
+        <input id="account" name="account" type="text" maxlength="30" placeholder="momo" value="momo">
+
+        <label for="target">褒めたいもの <small class="counter" data-for="target"></small></label>
+        <input id="target" name="target" type="text" maxlength="40" placeholder="民宿🦀" value="民宿🦀">
+
+        <label for="review">レビュー <small class="counter" data-for="review"></small></label>
+        <textarea id="review" name="review" rows="10" maxlength="600">日本の家の原風景がここにはあった。
+美味しいご飯に、おこたと蜜柑とテレビと団らん。
+これが、まさに日本人が失った「幸福」というのでは無いだろうか。
+そんな事を思い、朝ご飯を食べながらウルルと目が潤んだ。
+
+オーナーの🦀さんの案内により、那須の魅力がよりヒシヒシと伝わってきた。
+できることならまたゆきたい。</textarea>
+
+        <div class="actions">
+          <button type="button" id="reroll">🎲 絵文字と桁を引き直す</button>
+          <button type="button" id="download" class="primary">🖼 画像で保存</button>
+          <button type="button" id="copy">📋 テキストをコピー</button>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section class="panel preview-panel" aria-labelledby="preview-title">
+      <h2 id="preview-title">プレビュー</h2>
+
+      <article class="card" id="card" aria-label="クチコミ風プレビュー">
+        <div class="card-top">
+          <span class="back" aria-hidden="true">←</span>
+          <span class="place" id="pv-target"></span>
+          <span class="kebab" aria-hidden="true">⋮</span>
+        </div>
+        <div class="tabs" aria-hidden="true">
+          <span>概要</span><span class="active">クチコミ</span>
+        </div>
+        <div class="review">
+          <div class="who">
+            <span class="avatar" id="pv-avatar" aria-hidden="true">
+              <svg viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="15" r="7"/><path d="M6 36c1-8 7-12 14-12s13 4 14 12z"/></svg>
+            </span>
+            <span class="name" id="pv-account"></span>
+            <span class="kebab" aria-hidden="true">⋮</span>
+          </div>
+          <div class="rating">
+            <span class="big" id="pv-score"></span>
+            <span class="stars" aria-hidden="true">★★★★★</span>
+          </div>
+          <div class="body" id="pv-body"></div>
+          <div class="foot" aria-hidden="true"><span>👍 いいね</span><span>🔗 共有</span></div>
+        </div>
+      </article>
+      <p class="note">※ ジョーク画像です。実在のサービスのレビューとして投稿・偽装しないでください。</p>
+
+      <h3>感情クラスタ解析</h3>
+      <ul class="clusters" id="clusters"></ul>
+      <p class="meta" id="meta"></p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>MIT License · 完全クライアントサイド動作 · 外部通信なし</p>
+  </footer>
+</body>
+</html>

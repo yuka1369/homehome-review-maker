@@ -1,0 +1,25 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Unit tests (Node.js preinstalled on runner, no dependencies)
+        run: node --version && npm test
+      - name: Guard against unsafe DOM sinks
+        run: |
+          if grep -nE 'innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function' js/*.js; then
+            echo "Unsafe DOM sink found" && exit 1
+          fi
