@@ -3,17 +3,21 @@ import { analyze, hash, LIMITS } from './sentiment.js';
 
 const MAX = Object.freeze({ account: 30, target: 40, review: LIMITS.text });
 const AVATAR_COLORS = ['#8ab4f8', '#f28b82', '#fdd663', '#81c995', '#c58af9', '#78d9ec', '#fcad70'];
-const WATERMARK = 'ほめほめプレビューメイカーで作成 · ジョーク画像';
+const HASHTAG = '#ほめほめプレビューメイカー';
+const FILE_NAME = 'homehome-review.png'; // ファイル名に入力値を使わない
 
 const $ = (id) => document.getElementById(id);
 const els = {
   form: $('form'), account: $('account'), target: $('target'), review: $('review'),
   pvTarget: $('pv-target'), pvAccount: $('pv-account'), pvScore: $('pv-score'), pvBody: $('pv-body'),
   card: $('card'), clusters: $('clusters'), meta: $('meta'), status: $('status'),
+  tabEdit: $('tab-edit'), tabPreview: $('tab-preview'), tabBadge: $('tab-badge'),
 };
 
 let salt = 0;
 let state = null;
+let blobCache = null; // { key, blob } 共有ボタンを押した瞬間に渡せるよう事前生成
+let blobTimer = 0;
 
 /** 制御文字・双方向制御文字を除去し、長さを制限する */
 function clean(value, max, { multiline = false } = {}) {
@@ -41,6 +45,7 @@ function render() {
   els.pvTarget.textContent = input.target;
   els.pvAccount.textContent = input.account;
   els.pvScore.textContent = `${result.emoji}${result.scoreLabel}`;
+  els.tabBadge.textContent = `${result.emoji}${result.scoreLabel}`;
   els.pvBody.textContent = input.review;
   els.card.style.setProperty('--avatar', AVATAR_COLORS[hash(input.account) % AVATAR_COLORS.length]);
 
@@ -49,6 +54,27 @@ function render() {
     const c = document.querySelector(`.counter[data-for="${key}"]`);
     if (c) c.textContent = `${Array.from(els[key].value).length}/${MAX[key]}`;
   }
+  scheduleBlob();
+}
+
+const stateKey = () => JSON.stringify([state.account, state.target, state.review, state.emoji, state.scoreLabel]);
+
+function scheduleBlob() {
+  clearTimeout(blobTimer);
+  blobTimer = setTimeout(async () => {
+    const key = stateKey();
+    const blob = await makeBlob();
+    if (blob && key === stateKey()) blobCache = { key, blob };
+  }, 400);
+}
+
+function makeBlob() {
+  return new Promise((resolve) => drawCard().toBlob(resolve, 'image/png'));
+}
+
+async function currentBlob() {
+  if (blobCache && blobCache.key === stateKey()) return blobCache.blob;
+  return makeBlob();
 }
 
 function renderClusters(result) {
@@ -84,8 +110,20 @@ function renderClusters(result) {
     + (negated.length ? ` / 否定として除外: ${negated.join('、')}` : '');
 }
 
+let statusTimer = 0;
 function setStatus(msg) {
   els.status.textContent = msg;
+  els.status.classList.add('show');
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => els.status.classList.remove('show'), 2200);
+}
+
+/* ---------------- 表示切り替え（狭い画面） ---------------- */
+function setView(view) {
+  document.body.dataset.view = view;
+  els.tabEdit.setAttribute('aria-pressed', String(view === 'edit'));
+  els.tabPreview.setAttribute('aria-pressed', String(view === 'preview'));
+  window.scrollTo({ top: 0 });
 }
 
 /* ---------------- 画像書き出し（Canvas） ---------------- */
@@ -138,7 +176,7 @@ function drawCard() {
   const yBody = yRating + (starsSameLine ? 70 : 120);
   const LH = 44;
   const yFoot = yBody + bodyLines.length * LH + 24;
-  const H = yFoot + 110;
+  const H = yFoot + 84;
 
   canvas.width = W * SCALE;
   canvas.height = H * SCALE;
@@ -212,40 +250,63 @@ function drawCard() {
   ctx.fillText('👍 いいね', PAD + 8, yFoot + 46);
   ctx.fillText('🔗 共有', PAD + 190, yFoot + 46);
 
-  // ウォーターマーク（実レビューへの偽装防止）
-  ctx.fillStyle = '#9aa0a6';
-  ctx.font = font(15);
-  ctx.textAlign = 'right';
-  ctx.fillText(WATERMARK, W - PAD, H - 18);
-
   return canvas;
 }
 
-function download() {
+function saveBlob(blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = FILE_NAME;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function download() {
   render();
-  const canvas = drawCard();
-  canvas.toBlob((blob) => {
-    if (!blob) { setStatus('画像の生成に失敗しました。'); return; }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'homehome-review.png'; // ファイル名に入力値を使わない
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setStatus('画像を保存しました。');
-  }, 'image/png');
+  const blob = await currentBlob();
+  if (!blob) { setStatus('画像の生成に失敗しました'); return; }
+  saveBlob(blob);
+  setStatus('画像を保存しました🖼');
+}
+
+/**
+ * スマホ：共有シートで画像ごと X アプリへ（Web Share API）。
+ * 非対応ブラウザ（主に PC）：画像を保存し、X の投稿画面を開く（画像は手動で添付）。
+ */
+async function share() {
+  render();
+  const text = `${state.target}に${state.emoji}${state.scoreLabel}\n${HASHTAG}`;
+  const blob = blobCache && blobCache.key === stateKey() ? blobCache.blob : null;
+  const file = blob && typeof File === 'function' ? new File([blob], FILE_NAME, { type: 'image/png' }) : null;
+
+  if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], text });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // ユーザーがキャンセル
+    }
+  }
+  // フォールバック：ユーザー操作の同期区間で先にウィンドウを開く（ポップアップブロック回避）
+  const intent = new URL('https://x.com/intent/post');
+  intent.searchParams.set('text', text);
+  window.open(intent.toString(), '_blank', 'noopener,noreferrer');
+  const b = blob || await currentBlob();
+  if (b) saveBlob(b);
+  setStatus('画像を保存しました。Xの投稿に添付してください');
 }
 
 async function copyText() {
   render();
-  const text = `${state.target}\n${state.account}\n${state.emoji}${state.scoreLabel} ★★★★★\n\n${state.review}\n\n#ほめほめプレビューメイカー`;
+  const text = `${state.target}\n${state.account}\n${state.emoji}${state.scoreLabel} ★★★★★\n\n${state.review}\n\n${HASHTAG}`;
   try {
     await navigator.clipboard.writeText(text);
-    setStatus('テキストをコピーしました。');
+    setStatus('テキストをコピーしました📋');
   } catch {
-    setStatus('コピーできませんでした（ブラウザの権限をご確認ください）。');
+    setStatus('コピーできませんでした');
   }
 }
 
@@ -253,6 +314,10 @@ els.form.addEventListener('input', () => { salt = 0; render(); });
 els.form.addEventListener('submit', (e) => e.preventDefault());
 $('reroll').addEventListener('click', () => { salt += 1; render(); setStatus('引き直しました🎲'); });
 $('download').addEventListener('click', download);
+$('share').addEventListener('click', share);
+els.tabEdit.addEventListener('click', () => setView('edit'));
+els.tabPreview.addEventListener('click', () => setView('preview'));
 $('copy').addEventListener('click', copyText);
 
+setView('edit');
 render();

@@ -90,20 +90,40 @@ normalize(s) / hash(s) / scoreToLabel(score, seed) / CLUSTERS / TIERS / LIMITS
 
 - **入力正規化 `clean()`**: NFC 化、C0 制御文字と Unicode 双方向制御文字（U+202A–202E, U+2066–2069, U+200E/F）を除去、書記素（コードポイント）単位で長さ制限、連続改行の圧縮。
 - **描画 `render()`**: すべて `textContent` / `replaceChildren` / `createElement` で構築。`innerHTML` は使用しない。アバター色はアカウント名のハッシュから決定（CSSOM の `style.setProperty` は CSP の `style-src 'self'` 下でも許可される）。
-- **画像書き出し `drawCard()`**: Canvas 2D に `fillText` で描画（文字列は HTML として解釈されない）。`Intl.Segmenter` による書記素単位の折り返しで絵文字の分断を防ぐ。2 倍解像度。下部に透かし。`toBlob` → `URL.createObjectURL` → 固定ファイル名 `homehome-review.png` でダウンロード → URL を revoke。
+- **画像書き出し `drawCard()`**: Canvas 2D に `fillText` で描画（文字列は HTML として解釈されない）。`Intl.Segmenter` による書記素単位の折り返しで絵文字の分断を防ぐ。2 倍解像度。`toBlob` → `URL.createObjectURL` → 固定ファイル名 `homehome-review.png` でダウンロード → URL を revoke。
+- **画像の事前生成**: 入力が止まって 400ms 後に PNG を作ってキャッシュする（`blobCache`）。iOS Safari の `navigator.share` はタップ直後でないと拒否されるため、押した瞬間に画像を渡せるようにしている。
+- **Xにシェア `share()`**: `navigator.canShare({ files })` が真なら共有シート（画像 + 「対象に🎐1京 #ほめほめプレビューメイカー」）。偽なら、タップ直後に `https://x.com/intent/post?text=…` を `noopener,noreferrer` で開き（ポップアップブロック回避）、続けて画像を保存する。共有をキャンセルした場合（`AbortError`）は何もしない。
 - **コピー**: `navigator.clipboard.writeText`（失敗時はメッセージ表示のみ）。
+
+## 3.1 レスポンシブ設計
+
+モバイルファースト。CSS のメディアクエリのみで切り替え、JS は表示タブの状態（`body[data-view]`）だけを持つ。
+
+| 幅 | レイアウト | 操作バー |
+|----|-----------|---------|
+| 〜359px | タブ切り替え。プレビュータブは文言を省き「👀 🎐1京」のみ | 画面下に固定・4 等分・文字縮小 |
+| 360〜599px（スマホ） | タブ切り替え。パネル余白を詰め、見出しを省略。本文欄は画面高の 42% | 画面下に固定・アイコン上 / 文字下 |
+| 600〜879px（タブレット縦） | タブ切り替え | 同上 |
+| 880〜1279px（タブレット横・PC） | 2 カラム（1:1）。プレビューは `position: sticky` で追従 | 画面下中央に浮かぶ横並びバー |
+| 1280px〜（大画面） | 2 カラム（5:6）、最大幅 1200px | 同上 |
+
+- 文字サイズは `clamp()` で画面幅に追従（見出し、カードの店名・★部分・本文）。
+- `viewport-fit=cover` と `env(safe-area-inset-*)` で、ノッチやホームバーを避ける。
+- ボタンは `min-height: 44px`、`touch-action: manipulation` でダブルタップズームを抑止。
+- 入力欄は 16px（iOS 自動ズーム回避）。
+- 保存・共有の結果はトースト（`role="status"`）で 2.2 秒表示する。
+- `prefers-reduced-motion` ではアニメーションを無効化する。
 
 ## 4. セキュリティ設計
 
 | 脅威 | 対策 |
 |------|------|
 | XSS（入力に HTML/JS を混入） | `textContent` と Canvas `fillText` のみで出力。CSP で `script-src 'self'`、インラインスクリプト・`eval` 不可 |
-| 外部への情報送信 / トラッキング | 外部通信なし。CSP `connect-src 'none'`、`default-src 'none'`。解析タグなし。`referrer: no-referrer` |
+| 外部への情報送信 / トラッキング | 外部通信なし。CSP `connect-src 'none'`、`default-src 'none'`。解析タグなし。`referrer: no-referrer`。X への送信は利用者がシェアボタンを押したときだけで、渡すのは画像と短い投稿文のみ |
 | サプライチェーン攻撃 | 実行時の依存ゼロ・CDN 不使用。CI も追加アクションは `actions/checkout` のみ、`permissions: contents: read` |
 | 外部リソース読み込み・フォーム送信悪用 | `object-src 'none'`、`base-uri 'none'`、`form-action 'none'` |
 | 表示偽装（RLO 等の Bidi 文字） | 入力から双方向制御文字を除去 |
 | 巨大入力による DoS（自分のタブ） | `maxlength` + JS 側でも長さ制限、解析対象は先頭 600 文字 |
-| 偽レビューとしての悪用 | 実在サービスのロゴ・名称を使わない汎用デザイン、画像に透かし、画面に注意書き |
 | 秘密情報の漏えい | 秘密情報を一切持たない設計。`.gitignore` で `.env` 等を除外 |
 
 **既知の制約**: GitHub Pages はレスポンスヘッダを設定できないため、CSP は `<meta>` で指定している。`frame-ancestors`（クリックジャッキング対策）は meta では効かないが、本アプリには認証や状態変更操作がないためリスクは低いと判断した。独自ドメイン + CDN でヘッダを付与できる場合は `frame-ancestors 'none'` と `X-Content-Type-Options: nosniff` の追加を推奨する。
@@ -111,7 +131,7 @@ normalize(s) / hash(s) / scoreToLabel(score, seed) / CLUSTERS / TIERS / LIMITS
 ## 5. テスト
 
 - `node --test tests/*.test.mjs`：正規化、否定、最長一致、倍率、桁変換の単調性、異常入力（null・HTML・Bidi・超長文）、決定性、引き直し。
-- 手動 / E2E 確認：CSP 違反がコンソールに出ないこと、XSS 文字列が文字として表示されること、375px 幅で横スクロールが出ないこと、PNG 保存。
+- 手動 / E2E 確認：CSP 違反がコンソールに出ないこと、XSS 文字列が文字として表示されること、320 / 390 / 768 / 1024 / 1440px で横スクロールが出ずタブ切り替えが動くこと、PNG 保存。
 
 ## 6. デプロイ
 GitHub リポジトリの Settings → Pages → 「Deploy from a branch」→ `main` / `/(root)`。ビルドは不要。
